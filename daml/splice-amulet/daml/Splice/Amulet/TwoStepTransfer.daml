@@ -19,7 +19,7 @@ import DA.Assert
 import DA.Optional (optionalToList)
 
 import Splice.Api.Token.MetadataV1
-import Splice.Api.Token.HoldingV1
+import Splice.Api.Token.HoldingV2
 
 import Splice.Amulet
 import Splice.Amulet.TokenApiUtils
@@ -33,8 +33,7 @@ import Splice.Util
 data TwoStepTransfer = TwoStepTransfer with
     dso : Party
     sender : Party
-    receiver : Party
-    amount : Decimal
+    outputs : [(Party, Decimal)]
     lockContext : Text
       -- ^ Context description of the lock. This is used to display the reason for
       -- the lock in wallets.
@@ -44,7 +43,7 @@ data TwoStepTransfer = TwoStepTransfer with
       -- ^ Provider that should be marked as the app provider on the second step.
     allowFeaturing : Bool
       -- ^ Whether the second step can be featured.
-
+      deriving (Eq, Show)
 -- | The extra amount locked to guard against the transfer fees changing between
 -- the time of locking the amulet and the time of executing the actual transfer.
 feeReserveMultiplier : Decimal
@@ -72,23 +71,26 @@ prepareTwoStepTransfer
 prepareTwoStepTransfer TwoStepTransfer{..} requestedAt inputHoldingCids paymentContext = do
   require "requestedAt < transferBefore" (requestedAt < transferBefore)
   -- over-approximate fees that will be due on the actual transfer
-  let receiverOutputForActualTransfer = TransferOutput with
-        receiver
-        amount
-        receiverFeeRatio = 0.0  -- all fees are paid by the sender
-        lock = None
-  [expectedTransferFees] <- exerciseComputeFees dso paymentContext sender [receiverOutputForActualTransfer]
+  let receiverOutputsForActualTransfer = map (\(receiver, amount) -> TransferOutput with
+          receiver
+          amount
+          receiverFeeRatio = 0.0  -- all fees are paid by the sender
+          lock = None
+        )
+        outputs
+  expectedTransferFees <- sum <$> exerciseComputeFees dso paymentContext sender receiverOutputsForActualTransfer
   let feesReserveAmount = expectedTransferFees * feeReserveMultiplier
 
   -- lock the amulet
   transferInputs <- holdingToTransferInputs (ForOwner with dso; owner = sender) paymentContext inputHoldingCids
+  let totalAmount = sum $ (map snd outputs)
   let transfer = Splice.AmuletRules.Transfer with
         sender
         provider = sender -- the sender is serving as its own "app provider"
         outputs =
           [ TransferOutput with
               receiver = sender
-              amount = amount + feesReserveAmount
+              amount = totalAmount + feesReserveAmount
               receiverFeeRatio = 0.0 -- locking fees are paid by the sender
               lock = Some TimeLock with
                 expiresAt = transferBefore
@@ -107,9 +109,9 @@ prepareTwoStepTransfer TwoStepTransfer{..} requestedAt inputHoldingCids paymentC
     )
 
 executeTwoStepTransfer
-  : TwoStepTransfer -> ContractId LockedAmulet -> ExtraArgs
+  : TwoStepTransfer -> [ContractId Holding] -> ExtraArgs
   -> Update ([ContractId Holding], [ContractId Holding], Metadata)
-executeTwoStepTransfer TwoStepTransfer{..} lockedAmuletCid extraArgs = do
+executeTwoStepTransfer TwoStepTransfer{..} holdingCids extraArgs = do
   assertWithinDeadline transferBeforeDeadline transferBefore
   (paymentContext, beneficiaries) <-
     if allowFeaturing
@@ -122,20 +124,33 @@ executeTwoStepTransfer TwoStepTransfer{..} lockedAmuletCid extraArgs = do
         context <- unfeaturedPaymentContextFromChoiceContext dso extraArgs.context
         pure (context, None)
   let openRoundCid = paymentContext.context.openMiningRound
-  -- unlock amulet
-  unlockResult <- exercise lockedAmuletCid LockedAmulet_Unlock with openRoundCid
-  let amuletCid = unlockResult.amuletSum.amulet
+  
+  -- TODO: Is there a better way of doing this?
+  inputs <- forA holdingCids (\cid -> do
+      holding <- fetch cid
+      case fromInterface @Amulet holding of
+        Some _ -> return $ InputAmulet (fromInterfaceContractId cid)
+        None -> case fromInterface @LockedAmulet holding of
+          Some _ -> do
+            -- unlock amulet
+            unlockResult <- exercise (fromInterfaceContractId @LockedAmulet cid) LockedAmulet_Unlock with openRoundCid
+            return $ InputAmulet (unlockResult.amuletSum.amulet)
+          None -> abort "Received a non-amulet holding Id"
+    )
+
   -- execute transfer
-  let receiverOutput = TransferOutput with
-        receiver = receiver
-        amount = amount
-        receiverFeeRatio = 0.0  -- all fees are paid by the sender
-        lock = None
+  let receiverOutputs = map (\(receiver, amount) -> TransferOutput with
+          receiver
+          amount
+          receiverFeeRatio = 0.0  -- all fees are paid by the sender
+          lock = None
+        )
+        outputs
   let amuletRulesTransfer = Splice.AmuletRules.Transfer with
         sender
         provider
-        inputs = [InputAmulet amuletCid]
-        outputs = [receiverOutput]
+        inputs
+        outputs = receiverOutputs
         beneficiaries
   result <- exercisePaymentTransfer dso paymentContext amuletRulesTransfer
   pure
