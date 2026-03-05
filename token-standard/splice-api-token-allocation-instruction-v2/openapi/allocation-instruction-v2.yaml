@@ -3,18 +3,18 @@
 
 openapi: 3.0.0
 info:
-  title: transfer instruction off-ledger API
+  title: allocation instruction off-ledger API
   description: |
-    Implemented by token registries for the purpose of supporting the initiation
-    of asset transfers; e.g. to settle off-ledger obligations.
+    Implemented by token registries for using and managing
+    allocation instructions by wallets.
   version: 1.0.0
 paths:
 
-  /registry/transfer-instruction/v1/transfer-factory:
+  /registry/allocation-instruction/v2/allocation-factory:
     post:
-      operationId: "getTransferFactory"
+      operationId: "getAllocationFactory"
       description: |
-        Get the factory and choice context for executing a direct transfer.
+        Get the factory and choice context for creating allocations using the `AllocationFactory_Allocate` choice.
       requestBody:
         required: true
         content:
@@ -27,98 +27,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TransferFactoryWithChoiceContext"
-        "400":
-          $ref: "#/components/responses/400"
-        "404":
-          $ref: "#/components/responses/404"
-
-
-  /registry/transfer-instruction/v1/{transferInstructionId}/choice-contexts/accept:
-    post:
-      operationId: "getTransferInstructionAcceptContext"
-      description: |
-        Get the choice context to accept a transfer instruction.
-      parameters:
-        - name: transferInstructionId
-          description: "The contract ID of the transfer instruction to accept."
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/GetChoiceContextRequest"
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ChoiceContext"
-        "400":
-          $ref: "#/components/responses/400"
-        "404":
-          $ref: "#/components/responses/404"
-
-  /registry/transfer-instruction/v1/{transferInstructionId}/choice-contexts/reject:
-    post:
-      operationId: "getTransferInstructionRejectContext"
-      description: |
-        Get the choice context to reject a transfer instruction.
-      parameters:
-        - name: transferInstructionId
-          description: "The contract ID of the transfer instruction to reject."
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/GetChoiceContextRequest"
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ChoiceContext"
-        "400":
-          $ref: "#/components/responses/400"
-        "404":
-          $ref: "#/components/responses/404"
-
-  /registry/transfer-instruction/v1/{transferInstructionId}/choice-contexts/withdraw:
-    post:
-      operationId: "getTransferInstructionWithdrawContext"
-      description: |
-        Get the choice context to withdraw a transfer instruction.
-      parameters:
-        - name: transferInstructionId
-          description: "The contract ID of the transfer instruction to withdraw."
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/GetChoiceContextRequest"
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ChoiceContext"
+                $ref: "#/components/schemas/FactoryWithChoiceContext"
         "400":
           $ref: "#/components/responses/400"
         "404":
@@ -163,22 +72,9 @@ components:
           "choiceArguments",
         ]
 
-    GetChoiceContextRequest:
+    FactoryWithChoiceContext:
       description: |
-        A request to get the context for executing a choice on a contract.
-      type: object
-      properties:
-        meta:
-          description: |
-            Metadata that will be passed to the choice, and should be incorporated
-            into the choice context. Provided for extensibility.
-          type: object
-          additionalProperties:
-            type: string
-
-    TransferFactoryWithChoiceContext:
-      description: |
-        The transfer factory contract together with the choice context required to exercise the choice
+        A factory contract together with the choice context required to exercise the choice
         provided by the factory. Typically used to implement the generic initiation of on-ledger workflows
         via a Daml interface.
 
@@ -189,32 +85,18 @@ components:
         factoryId:
           description: "The contract ID of the contract implementing the factory interface."
           type: string
-        transferKind:
-          description: |
-            The kind of transfer workflow that will be used:
-            * `offer`: offer a transfer to the receiver and only transfer if they accept
-            * `direct`: transfer directly to the receiver without asking them for approval.
-              Only chosen if the receiver has pre-approved direct transfers.
-            * `self`: a self-transfer where the sender and receiver are the same party.
-              No approval is required, and the transfer is typically immediate.
-          type: string
-          enum:
-            - "self"
-            - "direct"
-            - "offer"
         choiceContext:
           $ref: "#/components/schemas/ChoiceContext"
       required:
         [
           "factoryId",
           "choiceContext",
-          "transferKind",
         ]
 
     ChoiceContext:
       description: |
         The context required to exercise a choice on a contract via an interface.
-        Used to retrieve additional reference data that is passed in via disclosed contracts,
+        Used to retrieve additional reference date that is passed in via disclosed contracts,
         which are in turn referred to via their contract ID in the `choiceContextData`.
       type: object
       properties:
