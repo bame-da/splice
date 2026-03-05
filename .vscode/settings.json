@@ -34,6 +34,5 @@
   },
   "metals.inlayHints.implicitArguments.enable": true,
   "metals.inlayHints.implicitConversions.enable": true,
-  "makefile.configureOnOpen": false,
-  "daml.useDPMWhenAvailable": false
+  "makefile.configureOnOpen": false
 }

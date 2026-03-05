@@ -10,7 +10,7 @@ info:
   version: 1.0.0
 paths:
 
-  /registry/allocations/v1/{allocationId}/choice-contexts/execute-transfer:
+  /registry/allocations/v2/{allocationId}/choice-contexts/execute-transfer:
     post:
       operationId: "getAllocationTransferContext"
       description: |
@@ -40,7 +40,7 @@ paths:
         "404":
           $ref: "#/components/responses/404"
 
-  /registry/allocations/v1/{allocationId}/choice-contexts/withdraw:
+  /registry/allocations/v2/{allocationId}/choice-contexts/withdraw:
     post:
       operationId: "getAllocationWithdrawContext"
       description: |
@@ -70,7 +70,7 @@ paths:
         "404":
           $ref: "#/components/responses/404"
 
-  /registry/allocations/v1/{allocationId}/choice-contexts/cancel:
+  /registry/allocations/v2/{allocationId}/choice-contexts/cancel:
     post:
       operationId: "getAllocationCancelContext"
       description: |
