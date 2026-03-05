@@ -138,7 +138,8 @@ allocationToTwoStepTransfer sender transferLegs admin expiresAt settlement =
     -- Note: we use a single leg to the sender to get the right locking behavior as part of preparing the two-step transfer
     -- We never execute the two-step transfer though, as that happens directly in a netted fashion.
     -- FIXME: improve representation once the design for batch settlement is definite
-    outputs = [(sender, negate (netAllocationAmount sender transferLegs))]
+    receiver = sender
+    amount = negate (netAllocationAmount sender transferLegs)
     provider = settlement.executor
     transferBefore = expiresAt
     transferBeforeDeadline = "allocation.expiresAt"
@@ -154,7 +155,8 @@ allocationToTwoStepTransfer_v1 sender transferLegs admin expiresAt settlement =
       TwoStepTransfer with
         dso = admin
         sender
-        outputs = [(leg.receiver.owner, leg.amount)]
+        receiver = leg.receiver.owner
+        amount = leg.amount
           -- Note: that this works as for a single leg allocation by the sender,
           -- `negate netAllocationAmount` is equal to leg.amount
         provider = settlement.executor
@@ -176,9 +178,11 @@ transferAmuletAllocation aa AllocationV1.Allocation_ExecuteTransfer{..} = do
       aa.admin
       aa.expiresAt
       aa.allocation.settlement
-    holdingCids = toInterfaceContractId <$> optionalToList aa.lockedAmulet
   (senderHoldingCids, receiverHoldingCids, meta) <-
-    executeTwoStepTransfer twoStepTransfer holdingCids extraArgs
+    case aa.lockedAmulet of
+      Some laCid -> executeTwoStepTransfer twoStepTransfer laCid extraArgs
+      None -> abort "invariant violation: v1 allocations must always have a locked amulet"
+        -- FIXME: revisit this from the perspective of using v2 APIs to allocate a v1 allocation -- if that is even required
   pure AllocationV1.Allocation_ExecuteTransferResult
     with
       senderHoldingCids = map coerceContractId senderHoldingCids
