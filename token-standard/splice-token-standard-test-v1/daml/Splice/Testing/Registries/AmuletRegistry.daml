@@ -29,7 +29,7 @@ module Splice.Testing.Registries.AmuletRegistry
 import DA.Action (unless)
 import DA.Date
 import qualified DA.TextMap as TextMap
-import DA.Optional (isSome)
+import DA.Optional (fromSome, isSome)
 import DA.List.Total
 import DA.Time
 import DA.Text qualified as T
@@ -57,6 +57,14 @@ import Splice.Testing.Registries.AmuletRegistry.Parameters
 import Splice.Testing.TokenStandard.RegistryApi
 
 import Daml.Script
+
+-- Utils to keep V1 alive
+-------------------------
+
+-- | Shared definition of the instrument-id used for amulets.
+amuletInstrumentIdV1 : Party -> InstrumentId
+amuletInstrumentIdV1 dso =
+  InstrumentId with admin = dso; id = "Amulet"
 
 -- Registry representation
 --------------------------
@@ -120,7 +128,7 @@ initialize config = do
   dso <- allocatePartyExact config.dsoPartyName
   let registry = AmuletRegistry with
         dso
-        instrumentId = amuletInstrumentId dso
+        instrumentId = amuletInstrumentIdV1 dso
 
   let amuletConfig
         | config.noTransferFee = defaultAmuletConfig with
@@ -254,7 +262,9 @@ registryApi_getAllocationTransferContext registry allocCid = do
   Some amuletAlloc <- queryContractId @AmuletAllocation registry.dso (coerceContractId allocCid)
   featuredAppRightC <- getFeaturedAppRightContext registry amuletAlloc.allocation.settlement.executor
   -- need to disclose the amulet contract, as the executor has no visibility into it
-  lockedAmuletD <- queryDisclosure' @LockedAmulet registry.dso amuletAlloc.lockedAmulet
+  lockedAmuletD <- case amuletAlloc.lockedAmulet of
+    None -> return mempty
+    Some la -> queryDisclosure' @LockedAmulet registry.dso la
   pure $ withExtraDisclosures lockedAmuletD (transferC <> featuredAppRightC)
 
 registryApi_getTransferInstruction_AcceptContext
@@ -297,11 +307,13 @@ registryApi_getAllocation_abortTwoStepTransferContext registry instrCid = do
   -- check whether the locked amulet is still active, so that aborts still work
   -- even if the owner of the LockedAmulet expired it
   Some amuletAlloc <- queryContractId @AmuletAllocation registry.dso (coerceContractId instrCid)
-  optLockedAmulet <- queryContractId @LockedAmulet registry.dso amuletAlloc.lockedAmulet
+  optLockedAmulet <- case amuletAlloc.lockedAmulet of
+    None -> return None
+    Some la -> queryContractId @LockedAmulet registry.dso la
   let lockedAmuletActive = isSome optLockedAmulet
   -- this can only happen if the locked amulet already expired
   now <- getTime
-  unless (lockedAmuletActive || amuletAlloc.allocation.settlement.settleBefore <= now) $
+  unless (lockedAmuletActive || amuletAlloc.expiresAt <= now) $
     fail "Invariant violation: the locked amulet is archived, but the settlement is not yet expired"
   -- this context communicates whether to unlock the amulet
   let expireLockC = OpenApiChoiceContext with
@@ -310,7 +322,7 @@ registryApi_getAllocation_abortTwoStepTransferContext registry instrCid = do
   if lockedAmuletActive
     then do
       -- disclose the amulet contract, as the caller might not be able to see it
-      lockedAmuletD <- queryDisclosure' @LockedAmulet registry.dso amuletAlloc.lockedAmulet
+      lockedAmuletD <- queryDisclosure' @LockedAmulet registry.dso (fromSome amuletAlloc.lockedAmulet)
       openRoundC <- getOpenRoundContext registry
       pure $ withExtraDisclosures lockedAmuletD (openRoundC <> expireLockC)
     else
